@@ -3,6 +3,7 @@ import logging
 import requests
 from flask import Flask, request, abort
 from supabase import create_client
+from flask_cors import CORS
 
 # --------------------------------------------------
 # Auth helpers
@@ -28,6 +29,19 @@ def require_viewer():
 # --------------------------------------------------
 
 app = Flask(__name__)
+
+CORS(
+    app,
+    origins=[
+        "http://localhost:5173",
+    ],
+    allow_headers=[
+        "Content-Type",
+        "X-M-Key",
+        "X-C-Key",
+    ],
+)
+
 logging.basicConfig(level=logging.INFO)
 
 supabase = create_client(
