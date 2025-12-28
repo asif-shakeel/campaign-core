@@ -14,6 +14,16 @@ def require_c():
     if request.headers.get("X-C-Key") != os.environ.get("C_API_KEY"):
         abort(403)
 
+def require_viewer():
+    m_key = request.headers.get("X-M-Key")
+    c_key = request.headers.get("X-C-Key")
+
+    if (
+        m_key != os.environ.get("M_API_KEY")
+        and c_key != os.environ.get("C_API_KEY")
+    ):
+        abort(403)
+
 
 def send_test_email(to_email: str, token: str):
     response = requests.post(
@@ -120,7 +130,7 @@ def mailgun_webhook():
 
 @app.route("/replies", methods=["GET"])
 def list_replies():
-    require_c()
+    require_viewer()
     res = (
         supabase
         .table("replies")
