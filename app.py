@@ -4,6 +4,16 @@ import os
 from supabase import create_client
 import requests
 
+from flask import abort
+
+def require_m():
+    if request.headers.get("X-M-Key") != os.environ.get("M_API_KEY"):
+        abort(403)
+
+def require_c():
+    if request.headers.get("X-C-Key") != os.environ.get("C_API_KEY"):
+        abort(403)
+
 
 def send_test_email(to_email: str, token: str):
     response = requests.post(
@@ -110,6 +120,7 @@ def mailgun_webhook():
 
 @app.route("/replies", methods=["GET"])
 def list_replies():
+    require_c()
     res = (
         supabase
         .table("replies")
@@ -123,6 +134,7 @@ def list_replies():
 
 @app.route("/campaigns", methods=["POST"])
 def create_campaign():
+    require_m()
     data = request.get_json(force=True)
     name = data.get("name")
 
@@ -164,11 +176,22 @@ def send_campaign_test():
 
 @app.route("/campaigns/<campaign_id>/tokenize-and-send", methods=["POST"])
 def tokenize_and_send(campaign_id):
+    require_m()
     data = request.get_json(force=True)
     emails = data.get("emails")
 
     if not emails or not isinstance(emails, list):
         return {"error": "emails must be a list"}, 400
+
+
+    campaign = (
+        supabase
+        .table("campaigns")
+        .select("id")
+        .eq("id", campaign_id)
+        .single()
+        .execute()
+    )
 
     # Safety limits (adjust later if needed)
     if len(emails) > 100:
@@ -179,6 +202,7 @@ def tokenize_and_send(campaign_id):
         "sent": [],
         "failed": [],
     }
+
 
     logging.info(
         "Tokenizing and sending campaign %s to %d emails",
