@@ -1,6 +1,10 @@
+import logging
 from flask import Flask, request
 
 app = Flask(__name__)
+
+# Configure logging so Render shows it
+logging.basicConfig(level=logging.INFO)
 
 @app.route("/", methods=["GET"])
 def home():
@@ -8,22 +12,29 @@ def home():
 
 @app.route("/mailgun", methods=["POST"])
 def mailgun_webhook():
-    print("=== Mailgun webhook received ===")
+    logging.info("=== Mailgun webhook received ===")
 
-    # Show what keys Mailgun sends (safe)
-    keys = list(request.form.keys())
-    print("Form keys:", keys)
+    # Log content type
+    logging.info("Content-Type: %s", request.content_type)
 
-    # Show where it was sent to (important for routing)
-    recipient = request.form.get("recipient")
-    print("Recipient:", recipient)
+    # Log form keys
+    logging.info("Form keys: %s", list(request.form.keys()))
 
-    # Show a short preview of the message body
-    body = request.form.get("body-plain", "")
-    preview = body[:200]  # first 200 chars only
-    print("Body preview:", repr(preview))
+    # Log recipient
+    logging.info("Recipient: %s", request.form.get("recipient"))
 
-    print("=== End webhook ===")
+    # Log body preview if present
+    body = request.form.get("body-plain")
+    if body:
+        logging.info("Body preview: %r", body[:200])
+    else:
+        logging.info("No body-plain field found")
+
+    # Log raw payload size (this is the key diagnostic)
+    raw = request.get_data()
+    logging.info("Raw payload length: %d bytes", len(raw))
+
+    logging.info("=== End webhook ===")
     return "OK", 200
 
 if __name__ == "__main__":
