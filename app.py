@@ -162,6 +162,65 @@ def send_campaign_test():
         "token": token,
     }
 
+@app.route("/campaigns/<campaign_id>/tokenize-and-send", methods=["POST"])
+def tokenize_and_send(campaign_id):
+    data = request.get_json(force=True)
+    emails = data.get("emails")
+
+    if not emails or not isinstance(emails, list):
+        return {"error": "emails must be a list"}, 400
+
+    # Safety limits (adjust later if needed)
+    if len(emails) > 100:
+        return {"error": "max 100 emails per request"}, 400
+
+    results = {
+        "campaign_id": campaign_id,
+        "sent": [],
+        "failed": [],
+    }
+
+    logging.info(
+        "Tokenizing and sending campaign %s to %d emails",
+        campaign_id,
+        len(emails),
+    )
+
+    for email in emails:
+        try:
+            token = os.urandom(8).hex()
+
+            # Store ONLY token -> campaign mapping
+            supabase.table("campaign_tokens").insert({
+                "token": token,
+                "campaign_id": campaign_id,
+            }).execute()
+
+            # Send the email
+            send_test_email(
+                to_email=email,
+                token=token,
+            )
+
+            # Return mapping to M (but do NOT store email)
+            results["sent"].append({
+                "email": email,
+                "token": token,
+            })
+
+        except Exception as e:
+            logging.warning(
+                "Failed to send to one email in campaign %s: %s",
+                campaign_id,
+                str(e),
+            )
+            results["failed"].append({
+                "email": email,
+                "error": "send_failed",
+            })
+
+    return results, 200
+
 
 if __name__ == "__main__":
     import os
