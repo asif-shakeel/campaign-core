@@ -3,6 +3,26 @@ from flask import Flask, request
 import os
 from supabase import create_client
 
+
+import requests
+import os
+
+def send_test_email(to_email: str, token: str):
+    response = requests.post(
+        f"https://api.mailgun.net/v3/{os.environ['MAILGUN_DOMAIN']}/messages",
+        auth=("api", os.environ["MAILGUN_API_KEY"]),
+        data={
+            "from": "Campaign <campaign@mg.renewableenergyx.com>",
+            "to": to_email,
+            "subject": "Test campaign email",
+            "text": "Hello!\n\nThis is a test campaign email.\n\nReply to this message.",
+            "h:Reply-To": f"reply+{token}@mg.renewableenergyx.com",
+        },
+        timeout=10,
+    )
+
+    response.raise_for_status()
+
 app = Flask(__name__)
 supabase = create_client(
     os.environ["SUPABASE_URL"],
@@ -60,6 +80,16 @@ def mailgun_webhook():
 
 
     return "OK", 200
+
+
+@app.route("/send-test", methods=["POST"])
+def send_test():
+    token = "testtoken123"
+    send_test_email(
+        to_email=os.environ.get("TEST_EMAIL"),
+        token=token,
+    )
+    return {"status": "sent", "token": token}
 
 if __name__ == "__main__":
     import os
