@@ -156,7 +156,7 @@ def list_replies():
     res = (
         supabase
         .table("replies")
-        .select("token, body, subject, received_at")
+        .select("token, body, subject, campaign_id, received_at")
         .order("received_at", desc=True)
         .limit(50)
         .execute()
