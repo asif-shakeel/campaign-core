@@ -81,15 +81,28 @@ def mailgun_webhook():
 
     return "OK", 200
 
-
-@app.route("/send-test", methods=["POST"])
-def send_test():
-    token = "testtoken123"
-    send_test_email(
-        to_email=os.environ.get("TEST_EMAIL"),
-        token=token,
+@app.route("/replies", methods=["GET"])
+def list_replies():
+    res = (
+        supabase
+        .table("replies")
+        .select("token, body, subject, received_at")
+        .order("received_at", desc=True)
+        .limit(50)
+        .execute()
     )
-    return {"status": "sent", "token": token}
+
+    return res.data
+
+
+# @app.route("/send-test", methods=["POST"])
+# def send_test():
+#     token = "testtoken123"
+#     send_test_email(
+#         to_email=os.environ.get("TEST_EMAIL"),
+#         token=token,
+#     )
+#     return {"status": "sent", "token": token}
 
 if __name__ == "__main__":
     import os
