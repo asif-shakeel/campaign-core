@@ -2,10 +2,9 @@ import logging
 from flask import Flask, request
 import os
 from supabase import create_client
-
-
 import requests
-import os
+
+TOKEN_CAMPAIGN_MAP = {}
 
 def send_test_email(to_email: str, token: str):
     response = requests.post(
@@ -48,7 +47,7 @@ def mailgun_webhook():
     logging.info("Form keys: %s", list(request.form.keys()))
 
     # Log recipient
-    logging.info("Recipient: %s", request.form.get("recipient"))
+    # logging.info("Recipient: %s", request.form.get("recipient"))
 
     # Log body preview if present
     recipient = request.form.get("recipient", "")
@@ -71,11 +70,15 @@ def mailgun_webhook():
     body = request.form.get("body-plain")
 
     if token and body:
+        campaign_id = TOKEN_CAMPAIGN_MAP.get(token)
+
         supabase.table("replies").insert({
             "token": token,
             "body": body,
             "subject": subject,
+            "campaign_id": campaign_id,
         }).execute()
+
 
 
 
@@ -94,15 +97,43 @@ def list_replies():
 
     return res.data
 
+@app.route("/campaigns", methods=["POST"])
+def create_campaign():
+    data = request.get_json(force=True)
+    name = data.get("name")
 
-# @app.route("/send-test", methods=["POST"])
-# def send_test():
-#     token = "testtoken123"
-#     send_test_email(
-#         to_email=os.environ.get("TEST_EMAIL"),
-#         token=token,
-#     )
-#     return {"status": "sent", "token": token}
+    if not name:
+        return {"error": "name required"}, 400
+
+    res = supabase.table("campaigns").insert({
+        "name": name
+    }).execute()
+
+    return res.data[0]
+
+@app.route("/send-campaign-test", methods=["POST"])
+def send_campaign_test():
+    data = request.get_json(force=True)
+    campaign_id = data.get("campaign_id")
+    to_email = data.get("to_email")
+
+    if not campaign_id or not to_email:
+        return {"error": "campaign_id and to_email required"}, 400
+
+    token = os.urandom(8).hex()
+    TOKEN_CAMPAIGN_MAP[token] = campaign_id
+
+    send_test_email(
+        to_email=to_email,
+        token=token,
+    )
+
+    return {
+        "status": "sent",
+        "campaign_id": campaign_id,
+        "token": token,
+    }
+
 
 if __name__ == "__main__":
     import os
