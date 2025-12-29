@@ -3,9 +3,11 @@ import os
 import logging
 import secrets
 import re
+import csv
+import io
 import requests
 
-from flask import Flask, request, abort, jsonify
+from flask import Flask, request, abort, jsonify, Response
 from flask_cors import CORS
 from supabase import create_client
 
@@ -88,6 +90,21 @@ def send_email(to_email: str, subject: str, body: str):
     resp.raise_for_status()
     return resp.json()
 
+def csv_response(filename: str, header: list, rows: list):
+    buf = io.StringIO()
+    writer = csv.writer(buf)
+    writer.writerow(header)
+    for r in rows:
+        writer.writerow(r)
+
+    return Response(
+        buf.getvalue(),
+        mimetype="text/csv",
+        headers={
+            "Content-Disposition": f'attachment; filename="{filename}"'
+        },
+    )
+
 # ==================================================
 # Routes
 # ==================================================
@@ -120,7 +137,6 @@ def mailgun_webhook():
     ):
         return "OK", 200
 
-    # find recipient (most recent if multiple campaigns)
     rec = (
         supabase.table("campaign_recipients")
         .select("campaign_id, token")
@@ -149,7 +165,7 @@ def mailgun_webhook():
 
     return "OK", 200
 
-# ------------------ Replies ------------------
+# ------------------ Replies (JSON) ------------------
 
 @app.route("/replies", methods=["GET"])
 def list_replies():
@@ -162,6 +178,37 @@ def list_replies():
         .execute()
     )
     return jsonify(res.data or [])
+
+# ------------------ Replies CSV ------------------
+
+@app.route("/campaigns/<cid>/replies.csv", methods=["GET"])
+def replies_csv(cid):
+    require_viewer()
+
+    rows = (
+        supabase.table("replies")
+        .select("received_at,recipient_email,token,subject,body")
+        .eq("campaign_id", cid)
+        .order("received_at", desc=True)
+        .execute()
+        .data
+        or []
+    )
+
+    return csv_response(
+        f"campaign_{cid}_replies.csv",
+        ["received_at", "recipient_email", "token", "subject", "body"],
+        [
+            [
+                r["received_at"],
+                r["recipient_email"],
+                r["token"],
+                r.get("subject", ""),
+                r.get("body", ""),
+            ]
+            for r in rows
+        ],
+    )
 
 # ------------------ Campaigns ------------------
 
@@ -229,9 +276,40 @@ def upload_emails(cid):
             }).execute()
             mapping.append({"email": email, "token": token})
         except Exception:
-            pass  # duplicate email or token collision
+            pass
 
     return jsonify({"map": mapping}), 200
+
+# ------------------ Recipients CSV ------------------
+
+@app.route("/campaigns/<cid>/recipients.csv", methods=["GET"])
+def recipients_csv(cid):
+    require_m()
+
+    rows = (
+        supabase.table("campaign_recipients")
+        .select("email,token,created_at,sent_at,replied_at")
+        .eq("campaign_id", cid)
+        .order("created_at")
+        .execute()
+        .data
+        or []
+    )
+
+    return csv_response(
+        f"campaign_{cid}_email_token_map.csv",
+        ["email", "token", "created_at", "sent_at", "replied_at"],
+        [
+            [
+                r["email"],
+                r["token"],
+                r["created_at"],
+                r.get("sent_at"),
+                r.get("replied_at"),
+            ]
+            for r in rows
+        ],
+    )
 
 # ------------------ Send campaign ------------------
 
