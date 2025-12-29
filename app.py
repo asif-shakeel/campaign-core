@@ -183,7 +183,12 @@ def list_replies():
 
 @app.route("/campaigns/<cid>/replies.csv", methods=["GET"])
 def replies_csv(cid):
-    require_viewer()
+    # viewer = M or C
+    is_m = request.headers.get("X-M-Key") == os.environ.get("M_API_KEY")
+    is_c = request.headers.get("X-C-Key") == os.environ.get("C_API_KEY")
+
+    if not is_m and not is_c:
+        abort(403)
 
     rows = (
         supabase.table("replies")
@@ -195,13 +200,34 @@ def replies_csv(cid):
         or []
     )
 
+    # ---------------------------
+    # M-UI: include emails
+    # ---------------------------
+    if is_m:
+        return csv_response(
+            f"campaign_{cid}_replies.csv",
+            ["received_at", "recipient_email", "token", "subject", "body"],
+            [
+                [
+                    r["received_at"],
+                    r["recipient_email"],
+                    r["token"],
+                    r.get("subject", ""),
+                    r.get("body", ""),
+                ]
+                for r in rows
+            ],
+        )
+
+    # ---------------------------
+    # C-UI: NO EMAILS
+    # ---------------------------
     return csv_response(
         f"campaign_{cid}_replies.csv",
-        ["received_at", "recipient_email", "token", "subject", "body"],
+        ["received_at", "token", "subject", "body"],
         [
             [
                 r["received_at"],
-                r["recipient_email"],
                 r["token"],
                 r.get("subject", ""),
                 r.get("body", ""),
@@ -209,6 +235,7 @@ def replies_csv(cid):
             for r in rows
         ],
     )
+
 
 # ------------------ Campaigns ------------------
 
