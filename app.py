@@ -187,7 +187,7 @@ def list_campaigns():
     res = (
         supabase
         .table("campaigns")
-        .select("id,name,created_at,subject,body")
+        .select("id,name,created_at,status,subject,body")
         .order("created_at", desc=True)
         .execute()
     )
@@ -264,7 +264,7 @@ def tokenize_and_send(campaign_id):
     for email in emails:
         try:
             token = create_token_for_campaign(campaign_id)
-            send_email(email, token)
+            send_email(campaign_id, email, token)
             results["sent"].append({
                 "email": email,
                 "token": token,
@@ -274,6 +274,10 @@ def tokenize_and_send(campaign_id):
                 "email": email,
                 "error": "send_failed",
             })
+
+    supabase.table("campaigns").update({
+        "status": "sent",
+    }).eq("id", campaign_id).execute()
 
     return results, 200
 
@@ -288,16 +292,12 @@ def set_campaign_content(campaign_id):
     if not subject or not body:
         return {"error": "subject and body required"}, 400
 
-    res = (
-        supabase
-        .table("campaigns")
-        .update({
-            "subject": subject,
-            "body": body,
-        })
-        .eq("id", campaign_id)
-        .execute()
-    )
+    supabase.table("campaigns").update({
+        "subject": subject,
+        "body": body,
+        "status": "ready",
+    }).eq("id", campaign_id).execute()
+
 
     return {"status": "updated"}
 
