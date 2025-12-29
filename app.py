@@ -39,7 +39,7 @@ CORS(
             "origins": [
                 "http://localhost:5173",  # M-UI dev
                 "http://localhost:5174",  # C-UI dev
-                # later: add your deployed UI origins here
+                # add deployed UI origins later
             ]
         }
     },
@@ -55,8 +55,14 @@ supabase = create_client(
 
 MAILGUN_DOMAIN = os.environ["MAILGUN_DOMAIN"]
 MAILGUN_API_KEY = os.environ["MAILGUN_API_KEY"]
-FROM_EMAIL = os.environ.get("FROM_EMAIL", "Campaign <campaign@mg.renewableenergyx.com>")
-REPLY_DOMAIN = os.environ.get("REPLY_DOMAIN", "mg.renewableenergyx.com")  # reply+TOKEN@REPLY_DOMAIN
+FROM_EMAIL = os.environ.get(
+    "FROM_EMAIL",
+    "Campaign <campaign@mg.renewableenergyx.com>",
+)
+REPLY_DOMAIN = os.environ.get(
+    "REPLY_DOMAIN",
+    "mg.renewableenergyx.com",
+)
 
 # ==================================================
 # Helpers
@@ -69,13 +75,11 @@ def clean_body(text: str) -> str:
             text = text.split(marker, 1)[0]
     return text.strip()
 
-def token_like() -> str:
+def gen_token() -> str:
     # 16 hex chars
     return secrets.token_hex(8)
 
 def send_one_email(to_email: str, subject: str, body: str, token: str):
-    reply_to = f"reply+{token}@{REPLY_DOMAIN}"
-
     resp = requests.post(
         f"https://api.mailgun.net/v3/{MAILGUN_DOMAIN}/messages",
         auth=("api", MAILGUN_API_KEY),
@@ -84,7 +88,7 @@ def send_one_email(to_email: str, subject: str, body: str, token: str):
             "to": to_email,
             "subject": subject,
             "text": body,
-            "h:Reply-To": reply_to,
+            "h:Reply-To": f"reply+{token}@{REPLY_DOMAIN}",
         },
         timeout=15,
     )
@@ -102,19 +106,20 @@ def get_campaign(campaign_id: str):
 
 def insert_token_mapping(campaign_id: str) -> str:
     """
-    Insert token->campaign mapping.
-    campaign_tokens.token is (typically) a primary key. Retry on collision.
+    Insert token -> campaign_id into campaign_tokens.
+    Table schema (per your screenshot):
+      campaign_tokens(token text PK, campaign_id uuid, created_at timestamptz)
     """
-    for _ in range(5):
-        t = token_like()
+    for _ in range(8):
+        token = gen_token()
         try:
             supabase.table("campaign_tokens").insert({
-                "token": t,
+                "token": token,
                 "campaign_id": campaign_id,
             }).execute()
-            return t
+            return token
         except Exception:
-            # collision or transient error; retry a few times
+            # collision or transient error; retry
             continue
     raise Exception("Failed to generate unique token")
 
@@ -133,7 +138,7 @@ def mailgun_webhook():
     recipient = request.form.get("recipient", "")
     token = None
 
-    # recipient should look like reply+TOKEN@mg.domain.com
+    # recipient should look like reply+TOKEN@domain
     if recipient.startswith("reply+") and "@" in recipient:
         token = recipient.split("reply+", 1)[1].split("@", 1)[0]
 
@@ -146,8 +151,7 @@ def mailgun_webhook():
 
     # Deduplicate by Message-Id
     existing = (
-        supabase
-        .table("replies")
+        supabase.table("replies")
         .select("id")
         .eq("message_id", message_id)
         .limit(1)
@@ -158,8 +162,7 @@ def mailgun_webhook():
 
     # Map token -> campaign_id
     row = (
-        supabase
-        .table("campaign_tokens")
+        supabase.table("campaign_tokens")
         .select("campaign_id")
         .eq("token", token)
         .limit(1)
@@ -167,7 +170,6 @@ def mailgun_webhook():
     )
     campaign_id = row.data[0]["campaign_id"] if row.data else None
 
-    # Store reply (email address never stored)
     supabase.table("replies").insert({
         "token": token,
         "campaign_id": campaign_id,
@@ -184,32 +186,31 @@ def mailgun_webhook():
 def list_replies():
     require_viewer()
     res = (
-        supabase
-        .table("replies")
-        .select("token, body, subject, campaign_id, received_at")
+        supabase.table("replies")
+        .select("token,body,subject,campaign_id,received_at")
         .order("received_at", desc=True)
         .limit(500)
         .execute()
     )
     return jsonify(res.data or [])
 
-# ------------------ Campaigns (M creates; C edits content; both view) ------------------
+# ------------------ Campaigns (both can view) ------------------
 
 @app.route("/campaigns", methods=["GET"])
 def list_campaigns():
     require_viewer()
     res = (
-        supabase
-        .table("campaigns")
+        supabase.table("campaigns")
         .select("id,name,created_at,status,subject,body")
         .order("created_at", desc=True)
         .execute()
     )
     return jsonify(res.data or [])
 
+# ------------------ M: create campaign ------------------
+
 @app.route("/campaigns", methods=["POST"])
 def create_campaign():
-    # Campaigns are created by M
     require_m()
     data = request.get_json(force=True) or {}
     name = (data.get("name") or "").strip()
@@ -225,9 +226,10 @@ def create_campaign():
 
     return jsonify(res.data[0]), 200
 
+# ------------------ C: set content ------------------
+
 @app.route("/campaigns/<campaign_id>/content", methods=["POST"])
 def set_campaign_content(campaign_id):
-    # Content authored by C
     require_c()
 
     data = request.get_json(force=True) or {}
@@ -251,7 +253,7 @@ def set_campaign_content(campaign_id):
 
     return jsonify({"status": "updated", "campaign_id": campaign_id, "campaign_status": "ready"}), 200
 
-# ------------------ Send (M only; emails exist only in this request) ------------------
+# ------------------ M: tokenize + send (single step, NO email storage) ------------------
 
 @app.route("/campaigns/<campaign_id>/tokenize-and-send", methods=["POST"])
 def tokenize_and_send(campaign_id):
@@ -264,14 +266,13 @@ def tokenize_and_send(campaign_id):
     if camp.data.get("status") == "sent":
         return jsonify({"error": "campaign already sent"}), 400
 
+    if camp.data.get("status") != "ready":
+        return jsonify({"error": f"campaign not ready (status={camp.data.get('status')})"}), 400
+
     subject = (camp.data.get("subject") or "").strip()
     body = (camp.data.get("body") or "").strip()
     if not subject or not body:
         return jsonify({"error": "campaign content not set"}), 400
-
-    if camp.data.get("status") != "ready":
-        # we keep it strict: must be ready
-        return jsonify({"error": f"campaign not ready (status={camp.data.get('status')})"}), 400
 
     payload = request.get_json(force=True) or {}
     emails = payload.get("emails")
@@ -279,13 +280,11 @@ def tokenize_and_send(campaign_id):
     if not isinstance(emails, list) or not emails:
         return jsonify({"error": "emails must be a non-empty list"}), 400
 
-    # Safety limit
     if len(emails) > 1000:
         return jsonify({"error": "max 1000 emails per request"}), 400
 
     results = {"campaign_id": campaign_id, "sent": [], "failed": []}
 
-    # For simplicity: send immediately, store only token->campaign mapping.
     for email in emails:
         e = (email or "").strip()
         if not e or "@" not in e:
@@ -300,7 +299,7 @@ def tokenize_and_send(campaign_id):
             logging.warning("Failed to send to %s: %s", e, str(ex))
             results["failed"].append({"email": e, "error": "send_failed"})
 
-    # Mark campaign sent (even if partial failures; adjust later if you want)
+    # Mark campaign sent (even if partial failures; adjust policy later if desired)
     supabase.table("campaigns").update({"status": "sent"}).eq("id", campaign_id).execute()
 
     return jsonify(results), 200
