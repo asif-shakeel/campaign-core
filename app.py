@@ -30,11 +30,16 @@ def require_viewer():
 
 app = Flask(__name__)
 
+
 CORS(
     app,
-    origins=[
+    resources={r"/*": {"origins": [
         "http://localhost:5173",
-    ],
+        "http://localhost:5174",
+        # later:
+        # "https://m.yourdomain.com",
+        # "https://c.yourdomain.com",
+    ]}},
     allow_headers=[
         "Content-Type",
         "X-M-Key",
