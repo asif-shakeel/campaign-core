@@ -225,7 +225,7 @@ def list_campaigns():
 
 @app.route("/campaigns", methods=["POST"])
 def create_campaign():
-    require_m()
+    require_viewer()
     name = (request.json or {}).get("name", "").strip()
     if not name:
         return jsonify({"error": "name required"}), 400
