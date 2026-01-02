@@ -402,31 +402,9 @@ def clear_all_data():
     if data.get("confirm") != "DELETE_ALL_DATA":
         return jsonify({"error": "confirmation required"}), 400
 
-    # BIGSERIAL PK
-    supabase.table("replies") \
-        .delete() \
-        .gt("id", 0) \
-        .execute()
-
-    # BIGSERIAL PK
-    supabase.table("campaign_recipients") \
-        .delete() \
-        .gt("id", 0) \
-        .execute()
-
-    # TEXT PK (token)
-    supabase.table("campaign_tokens") \
-        .delete() \
-        .not_.is_("token", None) \
-        .execute()
-
-    # UUID PK
-    supabase.table("campaigns") \
-        .delete() \
-        .not_.is_("id", None) \
-        .execute()
-
+    supabase.rpc("truncate_all_campaign_data").execute()
     return jsonify({"status": "all data cleared"}), 200
+
 
 
 # ==================================================
