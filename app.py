@@ -295,27 +295,106 @@ def set_content(cid):
 @app.route("/campaigns/<cid>/upload-emails", methods=["POST"])
 def upload_emails(cid):
     require_m()
-    emails = (request.json or {}).get("emails", [])
 
-    mapping = []
+    data = request.get_json(force=True)
+    emails = data.get("emails", [])
 
-    for raw in emails:
-        email = extract_email(raw)
-        if not email:
-            continue
+    if not emails:
+        return jsonify({"error": "no emails provided"}), 400
 
-        token = gen_token()
+    campaign = (
+        supabase.table("campaigns")
+        .select("*")
+        .eq("id", cid)
+        .single()
+        .execute()
+        .data
+    )
+
+    if not campaign:
+        return jsonify({"error": "campaign not found"}), 404
+
+    inserted = 0
+
+    for email in emails:
+        token = secrets.token_hex(8)
+
+        supabase.table("campaign_recipients").insert({
+            "campaign_id": cid,
+            "email": email,
+            "token": token,
+        }).execute()
+
+        inserted += 1
+
+    return jsonify({
+        "uploaded": inserted
+    }), 200
+
+@app.route("/campaigns/<cid>/send", methods=["POST"])
+def send_campaign(cid):
+    require_m()
+
+    campaign = (
+        supabase.table("campaigns")
+        .select("*")
+        .eq("id", cid)
+        .single()
+        .execute()
+        .data
+    )
+
+    if not campaign:
+        return jsonify({"error": "campaign not found"}), 404
+
+    if campaign["status"] != "ready":
+        return jsonify({"error": "campaign not ready"}), 400
+
+    recipients = (
+        supabase.table("campaign_recipients")
+        .select("*")
+        .eq("campaign_id", cid)
+        .is_("sent_at", None)
+        .execute()
+        .data
+    )
+
+    if not recipients:
+        return jsonify({"error": "no recipients uploaded"}), 400
+
+    sent = 0
+    failed = 0
+
+    for r in recipients:
         try:
-            supabase.table("campaign_recipients").insert({
-                "campaign_id": cid,
-                "email": email,
-                "token": token,
-            }).execute()
-            mapping.append({"email": email, "token": token})
-        except Exception:
-            pass
+            send_email(
+                to=r["email"],
+                subject=campaign["subject"],
+                body=campaign["body"],
+                token=r["token"],
+            )
 
-    return jsonify({"map": mapping}), 200
+            supabase.table("campaign_recipients") \
+                .update({"sent_at": datetime.utcnow().isoformat()}) \
+                .eq("id", r["id"]) \
+                .execute()
+
+            sent += 1
+        except Exception:
+            failed += 1
+
+    supabase.table("campaigns") \
+        .update({
+            "status": "sent",
+            "sent_at": datetime.utcnow().isoformat(),
+        }) \
+        .eq("id", cid) \
+        .execute()
+
+    return jsonify({
+        "sent": sent,
+        "failed": failed,
+    }), 200
 
 # ------------------ Recipients CSV ------------------
 
