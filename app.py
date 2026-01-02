@@ -303,7 +303,7 @@ def upload_emails(cid):
     if not raw_emails:
         return jsonify({"error": "no emails provided"}), 400
 
-    # normalize + dedupe
+    # 🔴 THIS IS THE FIX (NORMALIZATION HAPPENS HERE)
     cleaned = []
     invalid = 0
     for raw in raw_emails:
@@ -313,7 +313,7 @@ def upload_emails(cid):
             continue
         cleaned.append(e.lower())
 
-    cleaned = list(dict.fromkeys(cleaned))  # preserve order, dedupe
+    cleaned = list(dict.fromkeys(cleaned))  # dedupe
 
     if not cleaned:
         return jsonify({"error": "no valid emails found"}), 400
@@ -333,6 +333,7 @@ def upload_emails(cid):
         "valid": len(cleaned),
         "invalid": invalid
     }), 200
+
 
 
 @app.route("/campaigns/<cid>/send", methods=["POST"])
