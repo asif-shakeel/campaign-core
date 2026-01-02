@@ -170,14 +170,24 @@ def mailgun_webhook():
 @app.route("/replies", methods=["GET"])
 def list_replies():
     require_viewer()
-    res = (
+
+    campaign_id = request.args.get("campaign_id")
+
+    q = (
         supabase.table("replies")
         .select("*")
         .order("received_at", desc=True)
         .limit(1000)
-        .execute()
     )
+
+    if campaign_id:
+        q = q.eq("campaign_id", campaign_id)
+
+    res = q.execute()
     return jsonify(res.data or [])
+
+
+
 
 # ------------------ Replies CSV ------------------
 
