@@ -394,16 +394,15 @@ def send_campaign(cid):
     return jsonify({"sent": sent, "failed": failed}), 200
 
 # ------------------ ADMIN: Clear all data ------------------
-
 @app.route("/admin/clear-all", methods=["POST"])
 def clear_all_data():
-    require_m()  # M-UI only
+    require_m()
 
     data = request.get_json(force=True) or {}
     if data.get("confirm") != "DELETE_ALL_DATA":
         return jsonify({"error": "confirmation required"}), 400
 
-    # Delete in dependency order
+    # BIGSERIAL PKs
     supabase.table("replies") \
         .delete() \
         .gt("id", 0) \
@@ -414,9 +413,10 @@ def clear_all_data():
         .gt("id", 0) \
         .execute()
 
+    # UUID PKs
     supabase.table("campaign_tokens") \
         .delete() \
-        .gt("id", 0) \
+        .not_.is_("id", None) \
         .execute()
 
     supabase.table("campaigns") \
