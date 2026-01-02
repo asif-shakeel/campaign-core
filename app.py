@@ -10,6 +10,7 @@ import requests
 from flask import Flask, request, abort, jsonify, Response
 from flask_cors import CORS
 from supabase import create_client
+from datetime import datetime, timezone
 
 # ==================================================
 # Auth
@@ -429,48 +430,48 @@ def recipients_csv(cid):
 
 # ------------------ Send campaign ------------------
 
-@app.route("/campaigns/<cid>/send", methods=["POST"])
-def send_campaign(cid):
-    require_m()
+# @app.route("/campaigns/<cid>/send", methods=["POST"])
+# def send_campaign(cid):
+#     require_m()
 
-    camp = (
-        supabase.table("campaigns")
-        .select("*")
-        .eq("id", cid)
-        .single()
-        .execute()
-        .data
-    )
+#     camp = (
+#         supabase.table("campaigns")
+#         .select("*")
+#         .eq("id", cid)
+#         .single()
+#         .execute()
+#         .data
+#     )
 
-    if camp["status"] != "ready":
-        return jsonify({"error": "campaign not ready"}), 400
+#     if camp["status"] != "ready":
+#         return jsonify({"error": "campaign not ready"}), 400
 
-    recs = (
-        supabase.table("campaign_recipients")
-        .select("*")
-        .eq("campaign_id", cid)
-        .execute()
-        .data
-    )
+#     recs = (
+#         supabase.table("campaign_recipients")
+#         .select("*")
+#         .eq("campaign_id", cid)
+#         .execute()
+#         .data
+#     )
 
-    sent = failed = 0
+#     sent = failed = 0
 
-    for r in recs:
-        try:
-            send_email(r["email"], camp["subject"], camp["body"])
-            sent += 1
-            supabase.table("campaign_recipients").update({
-                "sent_at": "now()"
-            }).eq("id", r["id"]).execute()
-        except Exception:
-            failed += 1
+#     for r in recs:
+#         try:
+#             send_email(r["email"], camp["subject"], camp["body"])
+#             sent += 1
+#             supabase.table("campaign_recipients").update({
+#                 "sent_at": "now()"
+#             }).eq("id", r["id"]).execute()
+#         except Exception:
+#             failed += 1
 
-    supabase.table("campaigns").update({
-        "status": "sent",
-        "sent_at": "now()"
-    }).eq("id", cid).execute()
+#     supabase.table("campaigns").update({
+#         "status": "sent",
+#         "sent_at": "now()"
+#     }).eq("id", cid).execute()
 
-    return jsonify({"sent": sent, "failed": failed}), 200
+#     return jsonify({"sent": sent, "failed": failed}), 200
 
 # ------------------ ADMIN: Clear all data ------------------
 @app.route("/admin/clear-all", methods=["POST"])
