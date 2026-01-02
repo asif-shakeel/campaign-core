@@ -363,10 +363,11 @@ def send_campaign(cid):
         supabase.table("campaign_recipients")
         .select("*")
         .eq("campaign_id", cid)
-        .is_("sent_at", None)
+        .eq("sent_at", None)   # ✅ THIS IS THE FIX
         .execute()
         .data
     )
+
 
     if not recipients:
         return jsonify({"error": "no recipients uploaded"}), 400
